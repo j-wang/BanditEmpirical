@@ -1,0 +1,57 @@
+---
+title: "Exploration"
+output: html_document
+---
+
+## Housekeeping
+```{r}
+library(ggplot2)
+source("utility.R")
+```
+
+## Read in Data Sample
+```{r}
+day1 <- "Webscope/R6/ydata-fp-td-clicks-v1_0.20090501.gz"
+max_lines <- scan(text=system(paste("zcat <", day1, "| wc -l"), intern=TRUE), n=1)
+
+raw_dat <- samplefile(day1, .5)
+proc_line(raw_dat, "str_dat")
+num_col <- max(count.fields("str_dat", sep=" "))
+
+max_fields <- which(count.fields("str_dat", sep=" ")==max(count.fields("str_dat", sep=" ")))
+
+dat <- read.table("str_dat", sep=" ", fill=TRUE, comment.char="",
+                  nrows=length(raw_dat), header=FALSE, col.names=print_header(),
+                  colClasses=c("numeric", "factor", "factor", 
+                               "numeric", "numeric", "numeric", "numeric", "numeric", "numeric",
+                               rep(c("factor", "numeric", "numeric", "numeric",
+                                     "numeric", "numeric", "numeric"), 22), "factor", "numeric",
+                               "factor", "numeric", "numeric", "numeric", "numeric", "numeric", "numeric"))
+names(dat) <- print_header()
+```
+
+## Initial Exploration of Conjoint Characteristics
+
+```{r}
+summary(dat)
+summary(dat$a1_id)
+plot(dat[, 4:8])
+
+pc <- princomp(dat[, 4:8])
+plot(pc)
+
+pc <- prcomp(dat[, 4:8])
+comp <- data.frame(pc$x[,1:4])
+plot(comp)
+library(rgl)
+plot3d(comp$PC1, comp$PC2, comp$PC3)
+```
+
+You can also embed plots, for example:
+
+```{r}
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
