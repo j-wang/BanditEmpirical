@@ -1,0 +1,94 @@
+---
+title: "Online Contextual Multi-Armed Bandits: An Empirical Analysis Using News Article Recommendations"
+author: \centering{James Wang \\ Haas School of Business, UC Berkeley}
+date: "November 26, 2014"
+bibliography: "references.bib"
+csl: "acm-sig-proceedings-long-author-list.csl"
+output:
+  pdf_document: default
+  html_document:
+    theme: journal
+---
+
+```{r, echo=FALSE}
+library(ggplot2)
+```
+
+\begin{center}\subsection{Abstract}\end{center}
+> Hard to benchmark bandit algorithms due to "off-policy evaluation problem". Dataset aims to solve that problem, and take opportunity to empirically test, using Yahoo TODAY! data, a variety of context bandit algorithms and see their behavior against theoretical bounds.
+
+# Introduction
+This paper evaluates a variety of contextual bandit algorithms and how empirical performance in a real-world dataset compares with theoretical results.
+
+Most algorithms work far better than worst-case regret bounds, otherwise they wouldn't be useful in practical applications. Unfortunately, past work has largely focused on either simulated data, toy problems, or proprietary datasets whose results and underlying characteristics cannot be scrutinized. 
+
+This paper takes advantage of the fact that we have randomized policy results from a web service (Yahoo frontpage). Using a method described in a previous paper that reflects a process similar to rejection sampling, we can obtain an unbiased estimate of the how our algorithms would perform in a real-world dataset [@offlineEval].
+
+# Problem Formulation
+
+## Online Contextual Bandit Problem
+This is a contextual bandit problem, where we observe a context and reward.
+
+This has to be online, because in the context of the web and other large-scale production applications, because it's inherently realtime and there's too much data to do offline.
+
+# Compared Algorithms
+
+## $\epsilon$-greedy
+This algorithm
+
+## UCB
+This is another algorithm
+
+## Thompson Sampling
+
+## GLM-UCB
+This is the main algorithm
+
+## Comparison of Theoretical Bounds
+I can insert a fancy table here. Maybe I can talk about adversarial vs. stochastic bounds. Or not.
+
+# Experiments
+## Yahoo! Today Module and Webscope Data
+This is a great dataset for this
+Describe how the data was collected
+
+## Experimental Setup
+### Data Description and Characteristics
+Describe the random bucket thing, some basic features of the data. Varying pool of arms to choose from over time. Arms, number of arms, everything shifts over time. This is more in line with a real problem.
+
+Describe how big the data is and how this necessitates an online solution.
+
+### Feature Construction
+Conjoint analysis, k-means into 5 clusters that are interchangeable
+
+### Resolving the Off-Policy Problem
+Of course, randomization doesn't solve the off-policy problem. We can still choose a policy that isn't covered by the actual data. So here:
+Talk about the unbiased estimation method. Analogous to rejection sampling. Since the articles are randomly assigned, we can expect that rejected samples will be unbiased and thus the ultimate estimate will be unbiased.
+
+## Performance Evaluation
+CTR and regret vs. an omniscent policy that picks the best arm for each group every time. Picked within each hour to prevent issues of data sparsity (but the distribution is relatively stable anyway, perhaps show best arms each minute, half hour, hour).
+
+# Results
+## Algorithm Comparisons
+Show tables and charts of results here
+
+## Remarks
+There's something interesting here.
+
+# Conclusion
+This was a good paper.
+
+## Reference List So Far
+
+Offline Evaluation Method [@offlineEval] 
+A Contextual-Bandit Approach to Personalized News Article Recommendation [@conBanditNews]
+Parametric Bandits [@GLMBandit].
+Further Optimal Regret Bounds for Thompson [@thompsonRegret]
+Lai Robbins 1985 [@UCB]
+Auer 2002 [@Auer2002]
+Epoch Greedy Context [@epochGreedy]
+
+# References
+```{r, echo=FALSE, message=FALSE}
+
+```
