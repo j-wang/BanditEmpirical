@@ -83,17 +83,19 @@ class ProcessWebscope(object):
         poolID = Column(Integer, ForeignKey('pool.poolID'))
         userID = Column(Integer, ForeignKey('user.userID'))
 
-    def __init__(self, db):
-        self.engine = create_engine('sqlite:///' + db, echo=True)
+    def __init__(self, db, log=True):
+        self.engine = create_engine('sqlite:///' + db, echo=log)
         metadata = MetaData()
         if len(metadata.sorted_tables) == 0:
             self.Base.metadata.create_all(self.engine)
+            self.pool = dict()
         else:
             # get metadata and article pool if the database exists
             self.Base = declarative_base(metadata=metadata)
             self.pool = self.__get_pool_dict()
 
-        self.session = sessionmaker(bind=self.engine)
+        Session = sessionmaker(bind=self.engine)
+        self.session = Session()
 
     def process_file(self, filename, num_lines=False):
         """Processes a given Webscope file (in gzip format) into SQLite db."""
@@ -102,12 +104,12 @@ class ProcessWebscope(object):
             # read lines until done
             processing = "all"
             for line in f:
-                self.__enter_db(self.parse_text(line))
+                self.parse_text(line)
         else:
             # read specified lines
             processing = '{0:d}'.format(num_lines)
             for i in range(num_lines):
-                self.__enter_db(self.parse_text(i))
+                self.parse_text(i)
 
         print('Done processing file ({} lines).'.format(processing))
         f.close()
@@ -115,12 +117,16 @@ class ProcessWebscope(object):
     def parse_text(self, string):
         """Parse individual lines"""
         l = string.split(' ')
+        max_idx, max_val = max(enumerate(map(lambda x: float(x[2:]),
+                                             l[4:9])), key=lambda i: i[1])
         user = self.User(feat2=float(l[4][2:]), feat3=float(l[5][2:]),
                          feat4=float(l[6][2:]), feat5=float(l[7][2:]),
-                         feat6=float(l[8][2:]), feat1=float(l[9][2:]))
+                         feat6=float(l[8][2:]), feat1=float(l[9][2:]),
+                         cluster=max_idx + 2)  # cluster correspond to feat
 
         self.session.add(user)
         self.session.flush()  # gives us the primary key for user
+        current_userID = user.userID
 
         # read in set of articles
         article_dict = dict()  # key is ID, value is list of features 2-6, 1
@@ -130,7 +136,7 @@ class ProcessWebscope(object):
                 if temp_dict != dict():  # if we have existent article
                     article_dict[temp_dict['id']] = temp_dict['feat']
                     temp_dict = dict()
-                temp_dict['id'] = i[2:]
+                temp_dict['id'] = i[1:]
                 temp_dict['feat'] = []
             else:
                 feat_num = int(i[:1])
@@ -139,14 +145,14 @@ class ProcessWebscope(object):
                 if feat_num == 7:  # reject bad data
                     temp_dict['feat'] = [0, 0, 0, 0, 0, 0]
                 else:
-                    temp_dict['feat'].append[feat_current]
+                    temp_dict['feat'].append(feat_current)
 
         if temp_dict != dict():  # add last article
             article_dict[temp_dict['id']] = temp_dict['feat']
 
         # add articles to db table
         current_articles = []
-        for k, v in article_dict:
+        for k, v in article_dict.items():
             if v == [0, 0, 0, 0, 0, 0]:
                 reject_feat = True
             else:
@@ -181,7 +187,7 @@ class ProcessWebscope(object):
             self.pool[current_poolID] = current_pool  # update tracked pools
 
         event = self.Event(datetime=datetime.datetime.fromtimestamp(int(l[0])),
-                           poolID=current_poolID, userID='REPLACE')
+                           poolID=current_poolID, userID=current_userID)
         self.session.add(event)
 
         self.session.commit()
