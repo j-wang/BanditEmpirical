@@ -80,36 +80,49 @@ class ProcessWebscope(object):
 
         eventID = Column(Integer, primary_key=True)
         datetime = Column(DateTime)
+        displayed = Column(Integer, ForeignKey('article.articleID'))
+        click = Column(Integer)
         poolID = Column(Integer, ForeignKey('pool.poolID'))
         userID = Column(Integer, ForeignKey('user.userID'))
 
     def __init__(self, db, log=True):
         self.engine = create_engine('sqlite:///' + db, echo=log)
-        metadata = MetaData()
-        if len(metadata.sorted_tables) == 0:
-            self.Base.metadata.create_all(self.engine)
-            self.pool = dict()
-        else:
-            # get metadata and article pool if the database exists
-            self.Base = declarative_base(metadata=metadata)
-            self.pool = self.__get_pool_dict()
+        metadata = MetaData(bind=self.engine)
+        metadata.reflect()
 
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
 
-    def process_file(self, filename, num_lines=False):
+        if len(metadata.sorted_tables) == 0:
+            self.Base.metadata.create_all(self.engine)
+            self.pool = dict()
+            self.article_set = set()
+        else:
+            # get metadata and article pool if the database exists
+            self.Base = declarative_base(metadata=metadata)
+            self.pool = self.__get_pool_dict()
+            self.article_set = self.__get_article_set()
+
+    def process_file(self, filename, num_lines=False, skip_lines=0):
         """Processes a given Webscope file (in gzip format) into SQLite db."""
+        counter = 0
         f = gzip.open(filename)
         if not num_lines:
             # read lines until done
             processing = "all"
             for line in f:
-                self.parse_text(line)
+                if counter >= skip_lines:
+                    self.parse_text(line)
+                else:
+                    counter += 1
         else:
             # read specified lines
             processing = '{0:d}'.format(num_lines)
             for i in range(num_lines):
-                self.parse_text(i)
+                if counter >= skip_lines:
+                    self.parse_text(i)
+                else:
+                    counter += 1
 
         print('Done processing file ({} lines).'.format(processing))
         f.close()
@@ -136,7 +149,7 @@ class ProcessWebscope(object):
                 if temp_dict != dict():  # if we have existent article
                     article_dict[temp_dict['id']] = temp_dict['feat']
                     temp_dict = dict()
-                temp_dict['id'] = i[1:]
+                temp_dict['id'] = int(i[1:])
                 temp_dict['feat'] = []
             else:
                 feat_num = int(i[:1])
@@ -153,17 +166,22 @@ class ProcessWebscope(object):
         # add articles to db table
         current_articles = []
         for k, v in article_dict.items():
-            if v == [0, 0, 0, 0, 0, 0]:
-                reject_feat = True
+            if k in self.article_set:
+                pass
             else:
-                reject_feat = False
+                if v == [0, 0, 0, 0, 0, 0]:
+                    reject_feat = True
+                else:
+                    reject_feat = False
 
-            article = self.Article(articleID=k, rejected=reject_feat,
-                                   feat2=v[0], feat3=v[1], feat4=v[2],
-                                   feat5=v[3], feat6=v[4], feat1=v[5])
+                article = self.Article(articleID=k, rejected=reject_feat,
+                                       feat2=v[0], feat3=v[1], feat4=v[2],
+                                       feat5=v[3], feat6=v[4], feat1=v[5])
+                self.session.add(article)
+                self.session.flush()
+                self.article_set.add(k)
+
             current_articles.append(k)
-            self.session.merge(article)  # ignore IntegrityErrors for existent
-            self.session.flush()
 
         # check if article pool already exists (to get poolID)
         current_pool = set(current_articles)
@@ -187,7 +205,8 @@ class ProcessWebscope(object):
             self.pool[current_poolID] = current_pool  # update tracked pools
 
         event = self.Event(datetime=datetime.datetime.fromtimestamp(int(l[0])),
-                           poolID=current_poolID, userID=current_userID)
+                           poolID=current_poolID, userID=current_userID,
+                           displayed=int(l[1]), click=int(l[2]))
         self.session.add(event)
 
         self.session.commit()
@@ -207,6 +226,16 @@ class ProcessWebscope(object):
                 pool_dict[p.poolID].add(article.articleID)
 
         return pool_dict
+
+    def __get_article_set(self):
+        """Gets set of articles in database"""
+        art_set = set()
+
+        all_articles = self.session.query(self.Article).all()
+        for article in all_articles:
+            art_set.add(article.articleID)
+
+        return art_set
 
 
 def main():

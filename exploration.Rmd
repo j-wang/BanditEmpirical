@@ -50,7 +50,61 @@ plot3d(comp$PC1, comp$PC2, comp$PC3)
 You can also embed plots, for example:
 
 ```{r}
+library(DBI)
+con <- dbConnect(RSQLite::SQLite(), "full_copy.db")
+res <- dbSendQuery(con, "SELECT * FROM article WHERE articleID=109417")
+dbFetch(res)
 
+res <- dbSendQuery(con, "SELECT datetime, COUNT(datetime) FROM event GROUP BY datetime")
+times <- dbFetch(res, n=-1)
+names(times) <- c('datetime', 'count')
+times$datetime <- as.POSIXct(times$datetime)
+ggplot(times, aes(datetime, count)) + geom_line()
+
+res <- dbSendQuery(con, "SELECT datetime, AVG(click) FROM event GROUP BY datetime")
+ctr <- dbFetch(res, n=-1)
+names(ctr) <- c('datetime', 'ctr')
+ctr$datetime <- as.POSIXct(ctr$datetime)
+ggplot(ctr, aes(datetime, ctr)) + geom_line()
+
+# articles with best CTRs
+res <- dbSendQuery(con, "SELECT articleID, AVG(click) FROM event LEFT JOIN article ON event.displayed=article.articleID GROUP BY articleID ORDER BY AVG(click) DESC")
+best_articles <- dbFetch(res, n=-1)
+
+# favorite article by cluster
+res <- dbSendQuery(con, "SELECT cluster, articleID, AVG(click) from event LEFT JOIN article ON event.displayed=article.articleID LEFT JOIN user ON event.userID=user.userID GROUP BY cluster")
+cluster_favorites <- dbFetch(res, n=-1)
+
+# cluster clickthrough rates
+res <- dbSendQuery(con, "SELECT cluster, AVG(click), datetime from event LEFT JOIN user ON event.userID=user.userID GROUP BY cluster, datetime")
+ctr_by_cluster <- dbFetch(res, n=-1)
+names(ctr_by_cluster) <- c('cluster', 'ctr', 'datetime')
+ctr_by_cluster$datetime <- as.POSIXct(ctr_by_cluster$datetime)
+ggplot(ctr_by_cluster, aes(x=datetime, y=ctr, colour=cluster)) + geom_line() + stat_smooth(method='loess', formula=y ~ x, size=1)
+
+# best arm per time period
+res <- dbSendQuery(con, "SELECT MAX(ctr), datetime, articleID from (SELECT AVG(click) as ctr, datetime, articleID from event LEFT JOIN article ON event.displayed=article.articleID GROUP BY datetime, articleID) GROUP BY datetime")
+arm_ctr <- dbFetch(res, n=-1)
+names(arm_ctr)[1] <- c('ctr')
+arm_ctr$datetime <- as.POSIXct(arm_ctr$datetime)
+ggplot(arm_ctr, aes(x=datetime, y=ctr, fill=as.factor(articleID))) + geom_bar(stat='Identity')
+
+# best arm per time period by cluster
+res <- dbSendQuery(con, "SELECT MAX(ctr), datetime, articleID, cluster from (SELECT AVG(click) as ctr, datetime, articleID, cluster from event LEFT JOIN article ON event.displayed=article.articleID LEFT JOIN user ON event.userID=user.userID GROUP BY datetime, articleID, cluster) GROUP BY datetime, cluster")
+arm_ctr_by_cluster <- dbFetch(res, n=-1)
+names(arm_ctr_by_cluster)[1] <- c('ctr')
+arm_ctr_by_cluster$datetime <- as.POSIXct(arm_ctr_by_cluster$datetime)
+ggplot(arm_ctr_by_cluster, aes(x=datetime, y=ctr, fill=as.factor(articleID))) + geom_bar(stat='Identity') + facet_wrap(~cluster)
+
+# top 5 arms per cluster
+top_arms_by_cluster <- data.frame()
+for (i in 2:6) {
+  res <- dbSendQuery(con, paste("SELECT AVG(click) as ctr, articleID, cluster from event LEFT JOIN article ON event.displayed=article.articleID LEFT JOIN user ON event.userID=user.userID WHERE cluster=", i, "GROUP BY articleID ORDER BY ctr DESC LIMIT 5"))
+  top_arms_by_cluster <- rbind(top_arms_by_cluster, dbFetch(res, n=-1))
+}
+ggplot(top_arms_by_cluster, aes(x=articleID, y=ctr, fill=as.factor(articleID))) + geom_bar(stat='Identity') + facet_wrap(~cluster)
+
+dbDisconnect(con)
 ```
 
 Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

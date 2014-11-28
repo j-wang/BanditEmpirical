@@ -87,6 +87,7 @@ Further Optimal Regret Bounds for Thompson [@thompsonRegret]
 Lai Robbins 1985 [@UCB]
 Auer 2002 [@Auer2002]
 Epoch Greedy Context [@epochGreedy]
+Pyma Bandits [@pymaBandits]
 
 # References
 ```{r, echo=FALSE, message=FALSE}

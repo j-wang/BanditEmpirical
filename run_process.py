@@ -11,11 +11,15 @@ from process_to_sqlite import ProcessWebscope
 # process all files in the data directory
 proc = ProcessWebscope('full.db', log=False)
 
+skip = [4681992, 1936662, 0, 0, 0, 0, 0, 0, 0, 0]
+counter = 0
+
 t0 = time.time()
 for file in os.listdir('Webscope/R6/'):
     if file.endswith('.gz'):
         print file
-        proc.process_file('Webscope/R6/' + file)
+        proc.process_file('Webscope/R6/' + file, skip_lines=skip[counter])
+        counter += 1
 t1 = time.time()
 
 the_time = str(datetime.timedelta(seconds=t1-t0))
