@@ -26,14 +26,14 @@ class RejectionMAB(MAB):
                                 'reward': None}
                        for policy in self.policy_names}
             while (policy_list):  # while policies unexecuted
-                event = self.__get_event(eventID)
+                event = self.get_event(eventID)
                 for policy in policy_list:
                     pulled = policy.get_arm(context=event['user'],
                                             arms=event['arms'],
                                             features=event['features'], T=t)
                     if pulled == event['pulled']:  # sample = policy choice
                         policy_list.remove(policy)
-                        policy.pull_arm(feedback=event['click'])
+                        policy.pull_arm(arm=pulled, feedback=event['click'])
                         results[policy.name] = {'arm_pulled': pulled,
                                                 'context': event['user'],
                                                 'choices': event['arms'],
@@ -43,26 +43,33 @@ class RejectionMAB(MAB):
                 eventID += 1
             self.__record_decisions(results)
 
-    def __get_db_connection(self, db):
+    def get_db_connection(self, db):
         conn = sqlite3.connect(db)
         c = conn.cursor()
         return c
 
-    def __get_ctr(self, arm, where):
-        self.db.execute('''SELECT AVG(click) FROM event LEFT JOIN user
-                           ON event.userID=user.userID WHERE
-                           event.displayed=? AND user.cluster=?''',
-                        (arm, where))
-        return self.db.fetchone()[0]
+    def get_ctrs(self):
+        self.db.execute('''SELECT cluster, displayed, AVG(click)
+                           FROM event LEFT JOIN user
+                           ON event.userID=user.userID
+                           GROUP BY cluster, displayed''')
+        res = self.db.fetchall()
+        ctrs = {}
+        for c, a, ctr in res:
+            if ctrs.get(c) is None:
+                ctrs[c] = {a: ctr}
+            else:
+                ctrs[c].update({a: ctr})
+        return ctrs
 
-    def __get_event(self, t):
+    def get_event(self, t):
         self.db.execute('''SELECT cluster, displayed, click, poolID
                            FROM event LEFT JOIN user
                            ON event.userID=user.userID
-                           WHERE event.eventID=?''', t)
+                           WHERE event.eventID=?''', (t,))
         cluster, pull, click, poolID = self.db.fetchone()
         self.db.execute('''SELECT articleID FROM poolarticle
-                           WHERE poolID=?''', poolID)
+                           WHERE poolID=?''', (poolID,))
         pool = [article[0] for article in self.db.fetchall()]
         features = {artID: np.outer(self.user_feat[cluster],
                                     self.article_feat[artID])
@@ -78,7 +85,7 @@ class RejectionMAB(MAB):
                 c, f1, f2, f3, f4, f5, f6 in self.db.fetchall()}
 
     def __get_article_feat(self):
-        self.db.execute('''SELECT articleID, feat1, feat2, feat3, feat4
+        self.db.execute('''SELECT articleID, feat1, feat2, feat3, feat4,
                            feat5, feat6 FROM article''')
         return {a: np.array([f1, f2, f3, f4, f5, f6]) for
                 a, f1, f2, f3, f4, f5, f6 in self.db.fetchall()}

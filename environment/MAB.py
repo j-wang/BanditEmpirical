@@ -10,18 +10,18 @@ class MAB(object):
     results = dict()  # k=policy_name, v=dict with regret, arm_pulled, reward
 
     def __init__(self, db, n_rounds, context_list, arm_list, policies):
-        self.db = self.__get_db_connection(db)
+        self.db = self.get_db_connection(db)
         self.rounds = n_rounds
         self.num_contexts = len(context_list)
         self.contexts = context_list
         self.arms = arm_list
         self.policies = policies
         self.policy_names = [policy.name for policy in policies]
-        self.ctr = self.__ctr_per_context()
+        self.ctr = self.get_ctrs()
 
     def run(self):
         """Runs the selected policies"""
-        raise "This method needs to be overridden"
+        raise AttributeError("This method needs to be overridden")
         # Call each policy each round
 
         # pass __record_decisions a dictionary with:
@@ -29,14 +29,15 @@ class MAB(object):
 
         # increment self.T += 1
 
-    def __get_db_connection(self, db):
-        raise "This method needs to be overridden"
+    def get_db_connection(self, db):
+        raise AttributeError("This method needs to be overridden")
 
-    def __get_ctr(self, arm, where):
-        raise "This method needs to be overridden"
+    def get_ctrs(self):
+        """Returns dict of dicts, where {context: {arm: avg reward}}"""
+        raise AttributeError("This method needs to be overridden")
 
-    def __get_event(self, t):
-        raise "This method needs to be overridden"
+    def get_event(self, t):
+        raise AttributeError("This method needs to be overridden")
 
     def get_regret(self, policy_name):
         """
@@ -82,8 +83,3 @@ class MAB(object):
             policy_results['arm_pulled'].append[pulled]
             policy_results['reward'].append[from_round['reward']]
             policy_results['regret'].append[best - expected]
-
-    def __ctr_per_context(self):
-        for context in self.contexts:
-            for arm in self.arms:
-                self.__get_ctr(arm=arm, where=context)
