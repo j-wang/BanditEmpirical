@@ -14,6 +14,7 @@ class RejectionMAB(MAB):
                                            arm_list, policies)
         self.user_feat = self.__get_user_feat()
         self.article_feat = self.__get_article_feat()
+        self.total_pulls = 0
 
     def run(self):
         """Runs selected policies"""
@@ -25,15 +26,16 @@ class RejectionMAB(MAB):
                                 'choices': None,
                                 'reward': None}
                        for policy in self.policy_names}
-            while (policy_list):  # while policies unexecuted
+            while policy_list != []:  # while policies unexecuted
                 event = self.get_event(eventID)
                 for policy in policy_list:
                     pulled = policy.get_arm(context=event['user'],
                                             arms=event['arms'],
-                                            features=event['features'], T=t)
+                                            features=event['features'])
                     if pulled == event['pulled']:  # sample = policy choice
                         policy_list.remove(policy)
-                        policy.pull_arm(arm=pulled, feedback=event['click'])
+                        policy.pull_arm(arm=pulled, feedback=event['reward'],
+                                        context=event['user'])
                         results[policy.name] = {'arm_pulled': pulled,
                                                 'context': event['user'],
                                                 'choices': event['arms'],
@@ -41,7 +43,8 @@ class RejectionMAB(MAB):
                     else:
                         pass  # reject sample for policy
                 eventID += 1
-            self.__record_decisions(results)
+            self.total_pulls = eventID
+            self.record_decisions(results)
 
     def get_db_connection(self, db):
         conn = sqlite3.connect(db)

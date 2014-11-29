@@ -7,12 +7,13 @@ Nov 29, 2014
 
 class Policy(object):
     """Abstract class for Policy classes"""
-    def __init__(self, num_arms, segments=1):
-        self.num_arms = num_arms
-        self.segments = segments
+    name = 'POLICY'
 
-    def get_arm(self, context, arms, features):
+    def __init__(self, arm_list):
+        self.arm_list = arm_list
+
+    def get_arm(self, arms, context=None, features=None):
         raise NotImplementedError("This method must be overridden.")
 
-    def pull_arm(self, arm, feedback):
+    def pull_arm(self, arm, feedback, context=None):
         raise NotImplementedError("This method must be overridden.")

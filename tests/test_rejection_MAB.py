@@ -7,6 +7,8 @@ import unittest
 import sqlite3
 import numpy as np
 from environment.rejection_MAB import RejectionMAB
+from policy.UCB import UCB, IndexedUCB, KLUCB
+from policy.thompson import Thompson
 
 
 class RejectionMABTest(unittest.TestCase):
@@ -15,8 +17,9 @@ class RejectionMABTest(unittest.TestCase):
         self.c = self.conn.cursor()
         self.c.execute('SELECT articleID FROM article')
         arms = [arm[0] for arm in self.c.fetchall()]
-        policies = []
-        self.MAB = RejectionMAB('full_copy.db', 10, range(2, 7),
+        policies = [UCB(arms), IndexedUCB(arms, range(2, 7)), KLUCB(arms),
+                    Thompson(arms)]
+        self.MAB = RejectionMAB('full_copy.db', 10000, range(2, 7),
                                 arms, policies)
 
     def tearDown(self):
@@ -69,3 +72,7 @@ class RejectionMABTest(unittest.TestCase):
         self.assertTrue(allclose(features[109515], features_called[109515]))
         self.assertItemsEqual(arms, arms_called)
         self.assertAlmostEqual(ctr_109558_2, ctr_109558_2_called)
+
+        self.MAB.run()
+        self.MAB.output_decisions('test_results.gz')
+        print self.MAB.total_pulls

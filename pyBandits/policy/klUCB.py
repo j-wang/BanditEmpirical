@@ -7,7 +7,7 @@ __version__ = "$Revision: 1.15 $"
 
 from math import log
 
-import kullback
+import pyBandits.kullback as kullback
 from IndexPolicy import IndexPolicy
 
 class klUCB(IndexPolicy):

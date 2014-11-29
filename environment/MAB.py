@@ -3,6 +3,7 @@ MAB.py
 James Wang
 Nov 28, 2014
 """
+import gzip
 
 
 class MAB(object):
@@ -18,6 +19,8 @@ class MAB(object):
         self.policies = policies
         self.policy_names = [policy.name for policy in policies]
         self.ctr = self.get_ctrs()
+        self.results = {policy: {'arm_pulled': [], 'reward': [], 'regret': []}
+                        for policy in self.policy_names}
 
     def run(self):
         """Runs the selected policies"""
@@ -66,9 +69,12 @@ class MAB(object):
         else:
             return self.results[policy_name][attr]
 
-    def __record_decisions(self, results):
-        # results has k=policy_name, v=dict with context, arm_pulled,
-        # reward, choices
+    def record_decisions(self, results):
+        """
+        Record the results of decisions for all policies this round.
+        Results has form of:
+        {policy_name: {context, arm_pulled, reward, choices}}
+        """
         for policy in self.policy_names:
             policy_results = self.results[policy]
             from_round = results[policy]
@@ -80,6 +86,20 @@ class MAB(object):
             expected = possible[pulled]
             best = max(possible.values())
 
-            policy_results['arm_pulled'].append[pulled]
-            policy_results['reward'].append[from_round['reward']]
-            policy_results['regret'].append[best - expected]
+            policy_results['arm_pulled'].append(pulled)
+            policy_results['reward'].append(from_round['reward'])
+            policy_results['regret'].append(best - expected)
+
+    def output_decisions(self, filename):
+        """Writes out decisions to specified file."""
+        with gzip.open(filename, 'wb') as f:
+            f.write('policy\tT\tarm_pulled\treward\tregret\n')
+            line = '{0}\t{1:d}\t{2:d}\t{3:d}\t{4:g}\n'
+            for policy in self.policy_names:
+                pol_values = self.results[policy]
+                for i in range(len(pol_values['arm_pulled'])):
+                    f.write(line.format(policy,
+                                        i,
+                                        pol_values['arm_pulled'][i],
+                                        pol_values['reward'][i],
+                                        pol_values['regret'][i]))
