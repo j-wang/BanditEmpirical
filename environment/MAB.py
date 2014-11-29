@@ -21,7 +21,7 @@ class MAB(object):
 
     def run(self):
         """Runs the selected policies"""
-        raise AttributeError("This method needs to be overridden")
+        raise NotImplementedError("This method needs to be overridden")
         # Call each policy each round
 
         # pass __record_decisions a dictionary with:
@@ -30,14 +30,14 @@ class MAB(object):
         # increment self.T += 1
 
     def get_db_connection(self, db):
-        raise AttributeError("This method needs to be overridden")
+        raise NotImplementedError("This method needs to be overridden")
 
     def get_ctrs(self):
         """Returns dict of dicts, where {context: {arm: avg reward}}"""
-        raise AttributeError("This method needs to be overridden")
+        raise NotImplementedError("This method needs to be overridden")
 
     def get_event(self, t):
-        raise AttributeError("This method needs to be overridden")
+        raise NotImplementedError("This method needs to be overridden")
 
     def get_regret(self, policy_name):
         """

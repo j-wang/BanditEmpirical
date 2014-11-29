@@ -12,7 +12,7 @@ class Policy(object):
         self.segments = segments
 
     def get_arm(self, context, arms, features):
-        raise AttributeError("This method must be overridden.")
+        raise NotImplementedError("This method must be overridden.")
 
     def pull_arm(self, arm, feedback):
-        raise AttributeError("This method must be overridden.")
+        raise NotImplementedError("This method must be overridden.")
