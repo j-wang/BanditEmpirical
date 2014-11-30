@@ -19,32 +19,44 @@ class RejectionMAB(MAB):
     def run(self):
         """Runs selected policies"""
         eventID = 1
-        for t in range(self.rounds):
-            policy_list = list(self.policies)
-            results = {policy: {'arm_pulled': None,  # init empty
-                                'context': None,
-                                'choices': None,
-                                'reward': None}
-                       for policy in self.policy_names}
-            while policy_list != []:  # while policies unexecuted
-                event = self.get_event(eventID)
-                for policy in policy_list:
+        n_policies = len(self.policies)
+        t_limit = np.repeat([self.rounds], n_policies)
+        t_track = np.repeat([1], n_policies)
+
+        results = {policy: {'arm_pulled': None,  # init empty
+                            'context': None,
+                            'choices': None,
+                            'reward': None}
+                   for policy in self.policy_names}
+        while np.less_equal(t_track, t_limit).all():
+            event = self.get_event(eventID)
+            for i in range(n_policies):  # if not filled
+                if t_track[i] <= self.rounds:
+                    policy = self.policies[i]
                     pulled = policy.get_arm(context=event['user'],
                                             arms=event['arms'],
                                             features=event['features'])
                     if pulled == event['pulled']:  # sample = policy choice
-                        policy_list.remove(policy)
+                        t_track[i] += 1
                         policy.pull_arm(arm=pulled, feedback=event['reward'],
                                         context=event['user'])
+                        # record results and clear for next t+1 round
                         results[policy.name] = {'arm_pulled': pulled,
                                                 'context': event['user'],
                                                 'choices': event['arms'],
                                                 'reward': event['reward']}
+                        self.record_decision(policy.name,
+                                             results[policy.name])
+                        results[policy.name] = {'arm_pulled': None,
+                                                'context': None,
+                                                'choices': None,
+                                                'reward': None}
                     else:
                         pass  # reject sample for policy
-                eventID += 1
-            self.total_pulls = eventID
-            self.record_decisions(results)
+                else:
+                    pass  # skip policies that are already done
+            eventID += 1
+        self.total_pulls = eventID
 
     def get_db_connection(self, db):
         conn = sqlite3.connect(db)

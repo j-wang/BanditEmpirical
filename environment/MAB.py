@@ -90,6 +90,26 @@ class MAB(object):
             policy_results['reward'].append(from_round['reward'])
             policy_results['regret'].append(best - expected)
 
+    def record_decision(self, policy_name, results):
+        """
+        Record the results of decision for a specific policy this round.
+        Results has the form of:
+        {context, arm_pulled, reward, choices}
+        """
+        policy_results = self.results[policy_name]
+
+        pulled = results['arm_pulled']
+        context = results['context']
+        choices = results['choices']
+
+        possible = {c: self.ctr[context][c] for c in choices}
+        expected = possible[pulled]
+        best = max(possible.values())
+
+        policy_results['arm_pulled'].append(pulled)
+        policy_results['reward'].append(results['reward'])
+        policy_results['regret'].append(best - expected)
+
     def output_decisions(self, filename):
         """Writes out decisions to specified file."""
         with gzip.open(filename, 'wb') as f:

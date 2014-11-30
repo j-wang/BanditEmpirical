@@ -9,6 +9,7 @@ import numpy as np
 from environment.rejection_MAB import RejectionMAB
 from policy.UCB import UCB, IndexedUCB, KLUCB
 from policy.thompson import Thompson
+from policy.oblivious import Oblivious
 
 
 class RejectionMABTest(unittest.TestCase):
@@ -18,7 +19,7 @@ class RejectionMABTest(unittest.TestCase):
         self.c.execute('SELECT articleID FROM article')
         arms = [arm[0] for arm in self.c.fetchall()]
         policies = [UCB(arms), IndexedUCB(arms, range(2, 7)), KLUCB(arms),
-                    Thompson(arms)]
+                    Thompson(arms), Oblivious(arms)]
         self.MAB = RejectionMAB('full_copy.db', 10000, range(2, 7),
                                 arms, policies)
 
