@@ -12,9 +12,11 @@ class RejectionMAB(MAB):
     def __init__(self, db, n_rounds, context_list, arm_list, policies):
         super(RejectionMAB, self).__init__(db, n_rounds, context_list,
                                            arm_list, policies)
+        self.poolarticles = self.__get_pools()
         self.user_feat = self.__get_user_feat()
         self.article_feat = self.__get_article_feat()
         self.total_pulls = 0
+        self.event_buffer = []
 
     def run(self):
         """Runs selected policies"""
@@ -33,6 +35,8 @@ class RejectionMAB(MAB):
             for i in range(n_policies):  # if not filled
                 if t_track[i] <= self.rounds:
                     policy = self.policies[i]
+                    # print 'Track advanced to {} on {}'.format(t_track[i],
+                    #                                           policy.name)
                     pulled = policy.get_arm(context=event['user'],
                                             arms=event['arms'],
                                             features=event['features'])
@@ -78,19 +82,26 @@ class RejectionMAB(MAB):
         return ctrs
 
     def get_event(self, t):
-        self.db.execute('''SELECT cluster, displayed, click, poolID
-                           FROM event LEFT JOIN user
-                           ON event.userID=user.userID
-                           WHERE event.eventID=?''', (t,))
-        cluster, pull, click, poolID = self.db.fetchone()
-        self.db.execute('''SELECT articleID FROM poolarticle
-                           WHERE poolID=?''', (poolID,))
-        pool = [article[0] for article in self.db.fetchall()]
-        features = {artID: np.outer(self.user_feat[cluster],
-                                    self.article_feat[artID])
-                    for artID in pool}
-        return {'user': cluster, 'pulled': pull, 'arms': pool,
-                'reward': click, 'features': features}
+        if self.event_buffer == []:
+            self.db.execute('''SELECT cluster, displayed, click, poolID
+                               FROM event LEFT JOIN user
+                               ON event.userID=user.userID
+                               WHERE event.eventID>=? AND event.eventID<=?''',
+                            (t, t + 10000))
+            buff = self.db.fetchall()
+            self.event_buffer = [{'user': clust, 'pulled': pull,
+                                  'arms': self.poolarticles[poolID],
+                                  'reward': click,
+                                  'features': {aID:
+                                               np.outer(self.user_feat[clust],
+                                                        self.article_feat[aID])
+                                               for aID in
+                                               self.poolarticles[poolID]}}
+                                 for clust, pull, click, poolID
+                                 in buff]
+            return self.event_buffer.pop(0)
+        else:
+            return self.event_buffer.pop(0)
 
     def __get_user_feat(self):
         self.db.execute('''SELECT cluster, AVG(feat1), AVG(feat2),
@@ -104,3 +115,16 @@ class RejectionMAB(MAB):
                            feat5, feat6 FROM article''')
         return {a: np.array([f1, f2, f3, f4, f5, f6]) for
                 a, f1, f2, f3, f4, f5, f6 in self.db.fetchall()}
+
+    def __get_pools(self):
+        pool_dict = dict()
+        self.db.execute('''SELECT poolID FROM pool''')
+        pools = self.db.fetchall()
+        for pool in pools:  # initialize lists to hold articleIDs
+            pool_dict[pool[0]] = []
+        self.db.execute('''SELECT poolID, articleID FROM poolarticle''')
+        pool_entries = self.db.fetchall()
+        for entry in pool_entries:
+            pool_dict[entry[0]].append(entry[1])
+
+        return pool_dict

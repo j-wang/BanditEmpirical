@@ -52,6 +52,7 @@ class RejectionMABTest(unittest.TestCase):
         user_called = self.MAB.user_feat
         article_called = self.MAB.article_feat
         event_2_called = self.MAB.get_event(2)
+        pools_called = self.MAB.poolarticles
 
         features = {i: np.outer(user_called[4], article_called[i])
                     for i in arms}
@@ -72,6 +73,7 @@ class RejectionMABTest(unittest.TestCase):
         self.assertTrue(allclose(features[109502], features_called[109502]))
         self.assertTrue(allclose(features[109515], features_called[109515]))
         self.assertItemsEqual(arms, arms_called)
+        self.assertItemsEqual(arms, pools_called[1])
         self.assertAlmostEqual(ctr_109558_2, ctr_109558_2_called)
 
         self.MAB.run()
