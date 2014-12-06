@@ -1,93 +1,545 @@
 ---
-title: "Online Contextual Multi-Armed Bandits: An Empirical Analysis Using News Article Recommendations"
+title: "Evalution of Multi-Armed Bandit Algorithms in a Web Recommendation Context"
 author: \centering{James Wang \\ Haas School of Business, UC Berkeley}
-date: "November 26, 2014"
+date: "December 5, 2014"
 bibliography: "references.bib"
 csl: "acm-sig-proceedings-long-author-list.csl"
 output:
-  pdf_document: default
+  pdf_document:
+    fig_caption: yes
   html_document:
     theme: journal
 ---
 
-```{r, echo=FALSE}
+```{r, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
 library(ggplot2)
+library(DBI)
+library(data.table)
+library(reshape2)
+con <- dbConnect(RSQLite::SQLite(), "data/final.db")
+
+res <- dbSendQuery(con, "SELECT COUNT(articleID) FROM article")
+article_count <- as.integer(dbFetch(res))
+
+res <- dbSendQuery(con, "SELECT COUNT(articleID) FROM poolarticle GROUP BY poolID")
+pool_size <- dbFetch(res)
+```
+
+```{r max_feats_chart, echo=FALSE, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE}
+# Bin Value of Max Feature
+# Return the max feature for each user. Histogram bin the occurances
+res <- dbSendQuery(con, 'SELECT MAX(feat2, feat3, feat4, feat5, feat6) FROM user GROUP BY userID')
+max_feats <- dbFetch(res, n=-1)
+names(max_feats) <- c('max_feat')
+
+max_feat_chart <- ggplot(max_feats, aes(max_feat)) + 
+  geom_histogram(aes(y=(..count..)/sum(..count..)), binwidth=.1) + 
+  xlim(c(0, 1)) +
+  xlab("feature value") +
+  ylab("density") + 
+  ggtitle("Maximum User Membership Feature")
+```
+
+```{r top_arms, echo=FALSE, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE}
+top_arms_by_cluster <- data.frame()
+for (i in 2:6) {
+  res <- dbSendQuery(con, paste("SELECT AVG(click) as ctr, articleID, cluster from event LEFT JOIN article ON event.displayed=article.articleID LEFT JOIN user ON event.userID=user.userID WHERE cluster=", i, "GROUP BY articleID ORDER BY ctr DESC LIMIT 5"))
+  top_arms_by_cluster <- rbind(top_arms_by_cluster, dbFetch(res, n=-1))
+}
+top_arms_by_cluster$articleID <- as.factor(top_arms_by_cluster$articleID)
+top_arms_cluster_chart <- ggplot(top_arms_by_cluster, aes(x=articleID, y=ctr, fill=articleID)) + 
+  geom_bar(stat='Identity') + 
+  scale_fill_discrete(name='articleID') +
+  ylab('CTR') +
+  xlab('articleID') +
+  ggtitle('Top 5 Articles Per User Cluster') +
+  facet_wrap(~cluster, ncol=1)
+```
+
+```{r ctr_agnostic, echo=FALSE, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE}
+res <- dbSendQuery(con, 'SELECT AVG(click) as ctr, displayed as articleID from event GROUP BY displayed')
+ctrs <- as.data.table(dbFetch(res, n=-1))
+ctrs_top <- ctrs[articleID %in% top_arms_by_cluster$articleID]
+ctrs_top$articleID <- as.factor(ctrs_top$articleID)
+setkey(ctrs_top, articleID)
+ctrs_top_chart <- ggplot(unique(ctrs_top), aes(x=articleID, y=ctr, fill=articleID)) +
+    geom_bar(stat="identity") +
+    ggtitle("CTRs (Cluster Agonistic) for Top 5 Articles Per Cluster") +
+    xlab("articleID") +
+    ylab("CTR")
+```
+
+```{r contextless, echo=FALSE, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE}
+# results
+result <- read.table('data/crash.gz', header=TRUE)
+result <- as.data.table(result)
+result[, cumulativeReward:=cumsum(reward), by=list(policy)]
+result_epsilon <- read.table('data/results_epsilon.gz', header=TRUE)
+result_epsilon <- as.data.table(result_epsilon)
+result_epsilon[, cumulativeReward:=cumsum(reward), by=list(policy)]
+
+# strip out bad epsilon, leave out Indexed, put in good ones (and get rid of redundant)
+result <- result[policy != 'EpsilonGreedy(0.1)' & policy != 'EpsilonGreedy(0.2)' & policy != 'IndexedUCB']
+result <- rbind(result, result_epsilon[policy == 'EpsilonGreedy(0.1)'])
+
+contextless_ctrs <- result[, max(cumulativeReward)/1000000, by=list(policy)]
+setnames(contextless_ctrs, c('policy', 'V1'), c('Policy', 'CTR'))
+contextless_ctrs <- contextless_ctrs[order(-CTR)]
+contextless_results <- ggplot(result, aes(x=T, y=cumulativeReward, colour=policy)) + geom_line() + ggtitle('Cumulative Clicks Over Time') 
+```
+
+```{r contextless_table_dat, echo=FALSE, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE}
+# Percent of arms pulled correctly
+## clickthrough rates, cluster agnostic
+ctrs[, articleRank:=rank(-ctr, ties.method='first')]
+ctrs <- ctrs[order(articleRank)]
+ctrs[, UCB:=sum(result$policy=='UCB' & result$arm_pulled==articleID), by=articleID]
+ctrs[, KLUCB:=sum(result$policy=='KL-UCB' & result$arm_pulled==articleID), by=articleID]
+ctrs[, Thompson:=sum(result$policy=='Thompson' & result$arm_pulled==articleID), by=articleID] 
+ctrs[, Epsilon:=sum(result$policy=='EpsilonGreedy(0.1)' & result_epsilon$arm_pulled==articleID), by=articleID]
+```
+
+```{r contextless_tables, echo=FALSE, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE}
+ctrs_policies <- melt(ctrs, id.vars=c('ctr', 'articleID', 'articleRank'), variable.name='policy')
+chosen_top100_chart <- ggplot(ctrs_policies[articleRank < 100,], aes(articleRank, value)) + geom_bar(stat='identity') + facet_wrap(~policy) + ylab('times pulled') + ggtitle("Times Article Chosen vs. Article Rank (Top 100)")
+chosen_all_chart <- ggplot(ctrs_policies, aes(articleRank, value)) + geom_bar(stat='identity') + facet_wrap(~policy) + ylab('times pulled') + ggtitle("Times Article Chosen vs. Article Rank") 
+```
+
+```{r contextful, echo=FALSE, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE}
+# Contextful
+result_context <- read.table('data/results_contextual.gz', header=TRUE)
+result_context <- as.data.table(result_context)
+result_context[, cumulativeReward:=cumsum(reward), by=list(policy)]
+
+contextful_ctrs <- result_context[, max(cumulativeReward)/1000000, by=list(policy)]
+setnames(contextful_ctrs, c('policy', 'V1'), c('Policy', 'CTR'))
+contextful_ctrs <- contextful_ctrs[order(-CTR)] 
+
+contextful_results <- ggplot(result_context, aes(x=T, y=cumulativeReward, colour=policy)) + geom_line() + ggtitle('Cumulative Clicks Over Time')
+```
+
+```{r linucbdat, echo=FALSE, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE}
+lindat <- read.table('data/linucb_test.gz', header=TRUE)
+lindat <- as.data.table(lindat)
+lindat[, cumulativeReward:=cumsum(reward), by=policy]
+linchart <- ggplot(lindat, aes(x=T, y=cumulativeReward, colour=policy)) + 
+  geom_line() + 
+  ggtitle('LinUCB vs. Other Algorithms')
+```
+
+```{r allCTRsdat, echo=FALSE, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE}
+all_ctrs <- rbind(contextful_ctrs, contextless_ctrs[Policy != 'IndexedUCB' & Policy != 'Random'])
+all_ctrs <- all_ctrs[order(-CTR)]
+```
+
+```{r pulled_contextdat, echo=FALSE, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE}
+## clickthrough rate, cluster sensitive
+result_cst <- read.table('data/results_contextual2.gz', header=TRUE)
+result_cst <- as.data.table(result_cst)
+
+cst_res <- dbSendQuery(con, 'SELECT AVG(click) as ctr, cluster, displayed as articleID from event LEFT JOIN user on event.userID=user.userID GROUP BY displayed, cluster')
+cst_ctrs <- dbFetch(cst_res, n=-1)
+cst_ctrs <- as.data.table(cst_ctrs)
+cst_ctrs[, articleRank:=rank(-ctr, ties.method='first'), by=cluster]
+cst_ctrs <- cst_ctrs[order(cluster, articleRank)]
+cst_ctrs[, IndexedUCB:=sum(result_cst$policy=='IndexedUCB' & result_cst$arm_pulled==articleID & result_cst$context==cluster), by=list(articleID, cluster)]
+cst_ctrs[, ContextualThompson:=sum(result_cst$policy=='ContextualThompson' & result_cst$arm_pulled==articleID & result_cst$context==cluster), by=list(articleID, cluster)]
+
+cst_policies <- melt(cst_ctrs, id.vars=c('ctr', 'articleID', 'articleRank', 'cluster'), variable.name='policy')
+cst_top_chart <- ggplot(cst_policies[policy != 'LinUCB (Scaled)'], aes(articleRank, value)) + geom_bar(stat='identity') + facet_grid(policy~cluster) + ggtitle("Times Article Chosen vs. Article Rank (By Cluster)") + ylab('times pulled')
+```
+
+```{r pulled_lindat, echo=FALSE, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE}
+# LinUCB
+lin_res <- dbSendQuery(con, paste('SELECT AVG(click) as ctr, cluster, displayed as articleID from event LEFT JOIN user on event.userID=user.userID WHERE displayed in (', paste(levels(as.factor(lindat$arm_pulled)), collapse=', '), ') GROUP BY displayed, cluster'))
+lin_ctrs <- dbFetch(lin_res, n=-1)
+lin_ctrs <- as.data.table(lin_ctrs)
+lin_ctrs[, articleRank:=rank(-ctr, ties.method='first'), by=cluster]
+lin_ctrs <- lin_ctrs[order(cluster, articleRank)]
+lin_ctrs[, LinUCB:=sum(lindat$policy=='LinUCB' & lindat$arm_pulled==articleID & lindat$context==cluster), by=list(articleID, cluster)]
+
+lin_top_chart <- ggplot(lin_ctrs, aes(articleRank, LinUCB)) + geom_bar(stat='identity') + facet_grid(~cluster) + ggtitle("Times Article Chosen vs. Article Rank (By Cluster)") + ylab('times pulled')
 ```
 
 \begin{center}\subsection{Abstract}\end{center}
-> Hard to benchmark bandit algorithms due to "off-policy evaluation problem". Dataset aims to solve that problem, and take opportunity to empirically test, using Yahoo TODAY! data, a variety of context bandit algorithms and see their behavior against theoretical bounds.
+> Evaluating multi-armed bandits empirically in real-world applications is difficult due to the
+off-policy problem (also known as partial label) where we cannot observe the feedback we'd get from
+unchosen paths in sequential decision problems. Li et al 2011 formulated a way of evaluating
+MABs in an unbiased manner and recently Yahoo! released the dataset used for that paper. In this
+work, I analyze the characteristics of that dataset and compare a number of popular MAB algorithms
+on the data. Notably, the data does not have consistent arms over time, so I also briefly describe
+a method for very simply adapting the evaluated bandit algorithms to this context.
 
 # Introduction
-This paper evaluates a variety of contextual bandit algorithms and how empirical performance in a real-world dataset compares with theoretical results.
 
-Most algorithms work far better than worst-case regret bounds, otherwise they wouldn't be useful in practical applications. Unfortunately, past work has largely focused on either simulated data, toy problems, or proprietary datasets whose results and underlying characteristics cannot be scrutinized. 
+Multi-armed bandits (MABs) are an important, broadly applicable problem formulation in statistical
+learning. While their simplicity make them ideal for theoretical analysis, their
+structure also allow them to closely match the exploration-exploitation tradeoff
+faced in many real-world applications [@berry]. Operations research, medical treatment, 
+and web content optimization are just a few of the domains where MABs have been applied
+to problems that exhibit this type of tradeoff [@ops; @AgarWeb; @conBanditNews].
 
-This paper takes advantage of the fact that we have randomized policy results from a web service (Yahoo frontpage). Using a method described in a previous paper that reflects a process similar to rejection sampling, we can obtain an unbiased estimate of the how our algorithms would perform in a real-world dataset [@offlineEval].
+However, empirical results for MABs have generally 
+been limited to simulation data, toy datasets, or proprietary datasets that 
+cannot be verified or replicated. The first two can potentially either introduce simulation 
+bias (leading to an overly favorable underlying distribution, which trivially 
+allows certain algorithms to perform well) or present scenarios that do not well 
+represent those faced by real-world applications of MABs. It is common to see papers
+on MABs that utilize these types of experiments: numerical simulations generated from a set
+of known distributions, an adapted dataset that does not naturally exhibit a MAB structure (leading
+to a highly idealized scenario or even a form of bias introduced by the authors tailoring the
+scenario), and/or a dataset (usually in a web context) where results cannot be
+replicated as it is a proprietary/closed dataset [@Auer2002; @GLMBandit].
 
-# Problem Formulation
+One of the main reasons for why these imperfect empirical evaluation techniques are used 
+(specifically, when real-world performance is being assessed) is the difficulty of finding good
+benchmarks for evaluating bandit algorithms. While there are many good choices
+for general supervised learning [@uci; @mloss], most are 
+not suitable for bandit algorithms. The main problem with most datasets is the "off-policy" problem 
+(also known as "partial label") where the dataset does not observe the outcome 
+of the action that the algorithm evaluated would have chosen [@precup; @offlineEval]. 
+Unfortunately, this problem is most acute in cases where the
+dataset/application area naturally exhibits the characteristics of a bandit problem
+(sequential decisions with exploration-exploitation tradeoffs). In these cases, by definition,
+we only have partial information and usually no feedback from the choices that
+were not made by whatever policy generated the choices observed in data. This forces us to rely on expensive and often
+impractical evaluation using production systems for reliable real-world empirical tests of bandit
+algorithms (e.g. an online system for web recommendation on a website) [@conBanditNews].
 
-## Online Contextual Bandit Problem
-This is a contextual bandit problem, where we observe a context and reward.
+A simple example that helps illustrate this problem is a website "A/B" test where one is trying to
+optimize some metric on the site with two different versions. We want to maximize
+conversions for a call-to-action (perhaps subscribing to a newsletter or clicks on an ad) on the website
+and want to both make sure we are showing the right version and we are maximizing our conversions.
+In an online, production context, we can apply a policy that attempts to do this and evaluate its
+performance metric. If we try to use the dataset offline for other algorithms, we will find that 
+the production algorithm may have chosen to show A, but our alternate algorithm in that context would
+have shown B. Unfortunately, we do not have the results for what would have happened with the counterfactual
+of showing B in this case, and hence we would not be able to properly evaluate our new algorithm on this
+dataset. We don't know what would have happened with the "on-policy" decision.
 
-This has to be online, because in the context of the web and other large-scale production applications, because it's inherently realtime and there's too much data to do offline.
+Li et al 2011 introduces an approach to solve this problem through an unbiased
+estimator [@offlineEval]. The broad concept is similar to the process of rejection sampling 
+where we sample from a superset of our desired set, and discard samples that do not
+fall within the desired set. The dataset described and used in Li et al 2011 was recently
+released by Yahoo!, and obtained for the purposes of this paper [@yahoo].
 
-# Compared Algorithms
+My aim in this paper is to evaluate the characteristics of dataset in question (and the
+unbiased estimator as applied to it), compare more popular algorithms that were not
+evaluated in the Li et al 2011 paper, and describe (very briefly) a simple procedure for
+modifying existing algorithms to work with a shifting number and set of arms.
+Finally, I hope to release the code used for processing the dataset (here, I took
+the raw data and processed it into an on-disk database), running the evaluations (with
+the unbiased estimator), and running the algorithms (with modifications for a shifting
+set of arms).
 
-## $\epsilon$-greedy
-This algorithm
+# Formal MAB Problem Setup
+For algorithm/policy $P$, each trial $t$ to $T$ trials:
 
-## UCB
-This is another algorithm
+1. Algorithm observes user $u_t$ and a set of $A_t$ arms (articles) 
+together with context vector $x_{t,a}$ for $a \in A_t$. $x_{t,a}$ contains 
+features and interactions from both user $u_t$ and arm $a_t$. Specifically 
+$x_{t,a} = \mathbf{u} \mathbf{a}^T$ where $\mathbf{u}$ is the feature 
+vector for user $u_t$ and $\mathbf{a}$ is the feature vector for arm $a_t$
+2. Based on $A$'s observations of rewards per arm for previous trials, 
+$P$ chooses arm from $A_t$ and recieves payoff $r_{t,a}$ (in our context,
+$r_{t, a}$ is binary and is either 0 or 1 depending on no click or click,
+respectively).
+3. Algorithm updates strategy based on new observation. No feedback is 
+received for unchosen arms.
 
-## Thompson Sampling
+# Description / Characteristics of the Data
 
-## GLM-UCB
-This is the main algorithm
+This data is drawn from the Today module on the Yahoo! homepage [@yahoo]. We see 
+45,811,883 distinct visit events where a user is shown an article in the 
+feature box (drawn from a pool of articles picked by human editors) and 
+the click (or lack of click) is recorded. Critically, as we 
+will discuss later, this dataset displays articles from the aforementioned 
+pool randomly. 
 
-## Comparison of Theoretical Bounds
-I can insert a fancy table here. Maybe I can talk about adversarial vs. stochastic bounds. Or not.
+In relation to the MAB problem, for each event $t$, I consider each article 
+as an arm ($a_t$), each pool of potential articles that can be shown as 
+the set of $A_t$ arms for the round, and each user as distinct user $u_t$. 
+Click events provide binary rewards (0 or 1 for no click or click, respectively) and 
+represented by $r_{t,a}$ for each article in each round. The context vector
+$x_{t,a}$ and its associated features are described more below.
 
-# Experiments
-## Yahoo! Today Module and Webscope Data
-This is a great dataset for this
-Describe how the data was collected
+```{r fig_yahoo, results='asis', fig.align='center', echo=FALSE}
+cat("\n![Yahoo! homepage and Today module](figures/yahoo.jpg)")
+```
 
-## Experimental Setup
-### Data Description and Characteristics
-Describe the random bucket thing, some basic features of the data. Varying pool of arms to choose from over time. Arms, number of arms, everything shifts over time. This is more in line with a real problem.
+## Users
 
-Describe how big the data is and how this necessitates an online solution.
+Each user within the dataset is distinct, which mitigates a potential problem of 
+dependent observations (users seeing an article multiple times, and having their 
+CTR affected in one direction or another). With over 45 million observed events and
+a guarantee of distinctness in users, we have over 45 million individual users. Each users is 
+analyzed using conjoint analysis and clustered using k-means into 5 clusters. 
+The specific details are outlined in Chu et al 2009 [@ChuConjoint]. 
 
-### Feature Construction
-Conjoint analysis, k-means into 5 clusters that are interchangeable
+Looking at the clustering behavior of user features, each datapoint is generally 
+fairly close to the center of the K-means cluster. One way of roughly seeing this is to
+look at the relative dominance of features for each user. All features (besides one constant
+feature) must sum to one, and if we look at Figure 2, we see that most users have one
+predominant feature that corresponds with their cluster membership. Practically speaking, we 
+would expect this would improve the performance of indexed policies (e.g. indexed UCB), since the 
+user feature vectors act similarly to discrete segments.
 
-### Resolving the Off-Policy Problem
-Of course, randomization doesn't solve the off-policy problem. We can still choose a policy that isn't covered by the actual data. So here:
-Talk about the unbiased estimation method. Analogous to rejection sampling. Since the articles are randomly assigned, we can expect that rejected samples will be unbiased and thus the ultimate estimate will be unbiased.
+```{r fig_maxfeat, fig.align='center', echo=FALSE, cache=TRUE, fig.cap='Maximum features for each user vector', fig.height=4}
+max_feat_chart
+```
 
-## Performance Evaluation
-CTR and regret vs. an omniscent policy that picks the best arm for each group every time. Picked within each hour to prevent issues of data sparsity (but the distribution is relatively stable anyway, perhaps show best arms each minute, half hour, hour).
+Given this characteristic, for this paper I average across the feature vectors 
+for each cluster to get the user feature vectors, both to make each user more 
+interchangeable (which they largely are anyway) and also save on computation, 
+as this makes it possible to cache feature vectors between user and article 
+pairs (all users otherwise have slightly different conjoint features). As Figure 2 suggests,
+this doesn't make much of an impact due to how close the features are to their
+cluster centers for individual users and the similarity between users in the same
+cluster.
 
-# Results
-## Algorithm Comparisons
-Show tables and charts of results here
+## Articles
 
-## Remarks
-There's something interesting here.
+There are `r article_count` articles observed within the course of the 10 days 
+covered by the dataset. A random article is drawn from a pool of around 20
+available articles for each event (varying from `r min(pool_size)` to 
+`r max(pool_size)`, with new articles introduced and old articles retired 
+throughout the period observed. We ultimately observe `r nrow(pool_size)` distinct 
+sets of articles, $A_t$, shown to users throughout the 10 days.
 
-# Conclusion
-This was a good paper.
+Each article has features determined by the same conjoint analysis process, which 
+is described in more detail in Chu et al 2009 [@ChuConjoint]. Together, the user and article feature 
+vectors give us a $\mathbb{R}^{36}$ vector for each user/article pair, $x_{t,a}$--this is obtained from
+the outer product of the user and article $\mathbb{R}^6$ feature vectors, which are then flattened into
+$\mathbb{R}^{36}$
 
-## Reference List So Far
+## Clickthrough Rates
 
-Offline Evaluation Method [@offlineEval] 
-A Contextual-Bandit Approach to Personalized News Article Recommendation [@conBanditNews]
-Parametric Bandits [@GLMBandit].
-Further Optimal Regret Bounds for Thompson [@thompsonRegret]
-Lai Robbins 1985 [@UCB]
-Auer 2002 [@Auer2002]
-Epoch Greedy Context [@epochGreedy]
-Pyma Bandits [@pymaBandits]
+Each user cluster is fairly distinct in terms of which arms are pulled. Note that from
+an application domain perspective, while the CTRs look fairly close (see Figure 3), the differences 
+are significant in a web context given generally low CTRs and with small 
+changes in CTRs leading to large business impacts. That being said, the nature of CTRs -- which can be 
+thought of as a stream of highly unbalanced binary rewards -- mean that we need a 
+huge number of observations in order to start distinguishing between arms.
+
+From Figure 4, we can see that each cluster in Figure 3 does start picking out some
+of the best articles in CTRs generally, despite still being distinct in the overall set 
+of top 5 most preferred articles.
+
+```{r fig_toparms, fig.align='center', echo=FALSE, cache=TRUE, fig.cap='Top arms per cluster and their CTRs', fig.height=5.25, fig.cap='Top arms and CTRs for each user cluster.'}
+top_arms_cluster_chart + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+```{r fig_armctrs, fig.align='center', echo=FALSE, fig.cap='Same top arms, general CTR ignoring user clusters / side information', fig.height=2.75, fig.cap='Top 5 arms from each cluster and CTRs, without regard to cluster'}
+ctrs_top_chart + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+One challenge that we will face in this dataset is that CTRs will not be stable over time
+(a simple example is off-hours, during the middle of the night in certain highly represented
+time zones). However, this type of impact affects all articles/arms similarly. More challenging
+from the perspective of existing algorithms is handling a shifting number of arms. There is a
+fairly simple solution for the algorithms I examine, which I will describe in later sections.
+
+# CTR Unbiased Estimation
+
+Overall, this dataset still does not solve the "off-policy" problem, where the chosen 
+arm by the policy does not correspond with the arm observed by the dataset. We cannot 
+observe the counterfactual, but we can get around the off-policy problem by estimating 
+the policy's performance on the dataset in an unbiased manner. This is covered much 
+more extensively in Li et al 2011, but the essential idea takes advantage of the fact 
+that the dataset's policies are randomly assigned [@offlineEval]. This means that there is no inherent 
+bias in the policy choices of the data itself. Taking advantage of this property, we 
+can simply discard observations where the policy's desired arm does not match the 
+observed arm. The notion here is similar to the idea of rejection sampling.
+
+Intuitively, we sample uniformally from a context-action set that is a superset our desired 
+context-action set, and reject samples that fall outside of the space. Normally, rejection 
+sampling's difficulty in finding a good way to evaluate membership in the desired 
+space. In our case, this is simple: we observe whether or not the arm that the 
+algorithm would pull given the context (time, user group, and/or feature vector 
+depending on the algorithm) matches the actual arm observed.
+
+This process, however, means that we may have to discard a fairly large number of articles 
+to get our desired $T$ observations, relating to $T$ and the number of arms. With a 
+large $T$ and a fairly large arm space of `r article_count` articles, we would 
+expect an order of magnitude more rejected than accepted observations: specifically, with
+only $\frac{1}{|A_{t}|}$ probability of the data exhibiting the right arm, where
+$|A_{t}|$ is the cardinality of the set of arms available each round $t$.
+
+
+------------------------------------------------------------------
+`Policy Evaluator` (from Li et al., 2011)
+------------------------------------------------------------------
+0. Inputs $T > 0$; bandit algorithm $P$; stream of events $S$\
+1. $h_0 \leftarrow \emptyset\text{   \{empty history\}}$\
+2. $\hat{G_P} \leftarrow 0\text{   \{zero payoff to start\}}$\
+3. $\mathbf{for}\text{ }t = 1,2,3,...,T \mathbf{do}$\
+4. $\;\;\;\;\mathbf{repeat}$\
+5. $\;\;\;\;\;\;\;\;\text{Get next event }(\mathbf{x}, a, r_a)\text{ from }S$\
+6. $\;\;\;\;\mathbf{until}\text{ }P(h_{t-1}, \mathbf{x}) = a$\
+7. $\;\;\;\;h_t \leftarrow$ `CONCATENATE`$(h_{t-1}, (\mathbf{x}, a, r_a))$\
+8. $\;\;\;\;\hat{G_P} \leftarrow \hat{G_P} + r_a$\
+9. $\mathbf{end\text{ }for}$\
+10. Output: $\hat{G_P}/T$
+------------------------------------------------------------------
+
+
+## Limitations
+The main limitation of this evaluator is that it is
+not unbiased in cases where we have a finite data stream [@offlineEval]. All real world data 
+sets, including this one, are finite. Additionally, it takes a significant 
+number of total observed events to reach our desired $T$.
+
+Empirically, it took over 220,000 data points to get 10,000 useable observations, over 
+6.7 million data points to get 300,000 useable observations and nearly 25 
+million data points to get 1 million useable observations. Fortunately, for 
+values of $T$ in this range,the data set is effectively infinite with 46 million 
+events. However, this does limit the size of $T$ that we can ultimately test. 
+Here, for both this limitation and reasons of time, I do not exceed $T$ = 1 million.
+
+# Brief Review of Algorithms Compared
+
+Below, I briefly describe each algorithm I evaluate. These are fairly well-known algorithms
+that are extensively described in literature (and our seminar), so I won't outline them in detail
+and leave that for their respective referenced papers.
+
+UCB, KL-UCB, and Thompson Sampling are adapted from Cappé and Garivier's pyBandits code
+distribution on mloss [@pymaBandits], with adaptations most significantly to allow code to run with a
+constantly shifting pool of available arms, $A_t$, and to allow the code to run with my testing
+code. The adaptations for these algorithms was fairly simple. As UCB and KL-UCB are index policies,
+I simply restricted the index set from all arms to $A_t$. Unseen new arms are always pulled (at random
+if there are multiple previously unseen arms), and arms that "drop out" for an extended period of time
+will naturally grow in attractiveness with $t$, as they will not have been pulled and UCB's "exploration
+bonus" would inflate and make them more attractive. For Thompson Sampling, I take a similar conceptual
+approach of restricting the argmax comparison for most attractive arms to only those within $A_t$: choose
+only among arms within $A_t$ to determine which action/arm $a$ maximizes our sampled parameter from the posterior
+distribution (here, for non-contextual Thompson, the Beta distribution).
+
+### **Non-Contextual**
+- **Random** - this algorithm simply picks an arm uniformally from $A_t$.
+- **UCB** - UCB was described originally in Lai & Robbins 1985. This implementation is as a special case of KL-UCB with Gaussian divergence as per Cappé et al 2013 and with an $\alpha$ constant of 1/2 instead of 2 as per Auer et al 2002 [@LaiRobbins; @cappe2013, @Auer2002].
+- **KL-UCB** - As per Cappé et al 2013 [@cappe2013].
+- **Thompson Sampling** - As originally described in Thompson 1933 [@thompson1933].
+
+### **Indexed**
+- **Indexed UCB** - This algorithm uses $\mathcal{X}$ independent UCB instances, where $\mathcal{X}$ is the number of distinct contexts/clusters (in the case of this paper, 5).
+
+### Contextual
+- **Thompson Sampling** As described in Agrawal & Goyal 2014, including with Gaussian prior [@conthompson]. Modified to work in the same way as non-contextual Thompson Sampling described above. I describe this version as "Contextual Thompson."
+- **LinUCB** As per Li, Chu et al 2010 [@conBanditNews]. Uses *only* the context vector $x_{a, t}$, so needs no modification to operate with a shifting pool of arms -- it is already designed to work in the more general linear bandit context. We will see the impact of this in the results below.
+
+# Results and Discussion
+
+## Non-Contextual
+
+The results for the non-contextual bandit algorithms evaluated here match those found more broadly in
+literature (see Figure 5). KL-UCB and Thompson Sampling do the best out of this group, 
+matching simulation results found in Cappé et al 2013 and Chapelle & Li 2011, where 
+these algorithms outperform different variants of the UCB algorithm [@empthompson; @cappe2013]. 
+UCB in turn has been shown to outperform $\epsilon$-greedy [@Auer2002].
+
+Interestingly, $\epsilon$-greedy performed nearly as poorly as an entirely random strategy.
+However, this is just one run. My results do not capture error bars well, and past work has
+shown that $\epsilon$-greedy is highly variable in its results [@GLMBandit; @conBanditNews]. While
+$\epsilon$-greedy has mostly done poorly in my own experiments, Figure 8 illustrates what may be
+happening. With so many (and continually shifting) arms, $\epsilon$-greedy can get "stuck"
+exploiting "best" arms that are, in actuality, suboptimal (its peak arms are relatively low in rank). 
+Exploration takes a long time to correct this problem after early successes and a large arm set to explore
+(but too high an $\epsilon$ would cause $\epsilon$-greedy to begin approaching a purely random policy anyway).
+
+```{r xcresults, echo=FALSE, warning=FALSE, cache=TRUE, fig.cap='Results for non-contextual bandit algorithms'}
+contextless_results
+```
+
+
+## Indexed UCB and Contextual Thompson
+
+On the other hand, indexed UCB and contextual Thompson do far worse than I would expect. While both do better
+than random, as we can see in Figure 6, they are both worse than any non-contextual bandit 
+(see the table of CTRs for all algorithms in the Comparison of Clickthrough Rates section), suggesting that
+either the context is not informative (which isn't true as we saw previously, and will see with LinUCB) or
+whatever "overhead" is incurred from including context is impacting performance. 
+
+I believe the "overhead" is at play for indexed UCB. For Indexed UCB, the constantly shifting pool of
+arms imposes a heavy penalty, as it must still explore suboptimal arms for each individual UCB instance every
+time a new arm appears. As we can see in Figure 9, we have a significant number of pulls from lowly ranked
+arms for every context.
+
+On the other hand, Figure 9 also shows extremely poor learning on the part of the contextual Thompson, in
+stark contrast with non-contextual Thompson on Figure 8. The reason this is likely the case is because the
+prior used in Contextual Thompson, following from Agrawal & Goyal 2014, is Gaussian and does not fit this
+problem context as well [@conthompson].
+
+```{r conresult, echo=FALSE, warning=FALSE, cache=TRUE, fig.cap='Results for indexed UCB and contextual thompson'}
+contextful_results
+```
+
+## LinUCB
+
+Finally, we can see in Figure 7 that LinUCB very quickly does better than all other bandit algorithms
+compared. This is fortunate, since due to greater computational demands from this algorithm, I was not 
+able to run LinUCB for 1,000,000 $T$ like the other algorithms within the time constraints of this 
+paper. However, we can conceptually understand why this is the case and see the reason in 
+Figure 10. LinUCB shares information between arms and contexts and quickly zeroes in on a good arm 
+for every context, ignoring most subpar arms entirely. But we also see
+some weaknesses in this approach in Figure 10. LinUCB doesn't actually pull the best arm within its available set
+for each context. It settles on arms quickly due to its structure of using a given context vector to learn
+a set of unobserved parameters that linearly generate rewards for each arm. There is no need to explore obviously
+subpar arms, except in this case some of the "subpar arms" within the model were actually superior. If this were
+a theoretical analysis, LinUCB would be penalized a fair amount for constantly incurring regret. Practically
+speaking, LinUCB looks like for this type of application domain to be "good enough" -- learning one of the the better
+choices very quickly. However, I also would expect that LinUCB's exploration bonus structure 
+(similar to classical UCB) would cause it to eventually start learning the context-reward structure 
+more precisely with a higher $T$ (i.e. similar to what I was able to run for the other algorithms).
+
+```{r linresult_chart, echo=FALSE, warning=FALSE, cache=TRUE, fig.cap='Results for LinUCB'}
+linchart
+```
+
+## Comparison of Clickthrough Rates
+
+Note that if we ran this experiment to 1,000,000 $T$ for LinUCB like the other algorithms, it would most
+likely outperform. Instead, its learning was restricted at 10,000 $T$. In future work, I would want to confirm
+this conjecture since it is also possible that constantly missing the best arms like described above would
+cause it to underperform some of these other algorithms.
+
+```{r, echo=FALSE, warning=FALSE, fig.cap='Clickthrough rates for all compared algorithms, T=1,000,000 (LinUCB only has T=10,000)'}  
+all_ctrs
+```
+
+```{r xcpullall, echo=FALSE, warning=FALSE, cache=TRUE, fig.cap='Arm pulls against article rank for non-contextual bandits'}
+chosen_all_chart
+```
+
+```{r cpullall, echo=FALSE, warning=FALSE, cache=TRUE, fig.cap='Arm pulls against article rank for contextual bandits'}
+cst_top_chart
+```
+
+```{r linpullall, echo=FALSE, warning=FALSE, cache=TRUE, fig.cap='Arm pulls against article rank for LinUCB'}
+lin_top_chart + ggtitle('LinUCB: Times Article Chosen vs. Rank (By Cluster)')
+```
+
+## Future Work and Conclusions
+
+Like I mentioned previously for $\epsilon$-greedy in results, this analysis does not
+take into account the range of outcomes we may see. Future work should put "error bars"
+into place to get a sense of how much variation we may see in the results. From testing
+the algorithms, I got a sense that most results were fairly consistent except $\epsilon$-greedy,
+but it would be good to have a more rigorous analysis done.
+
+Analytically speaking, in addition to quantifying the variation we may see in the results,
+I would want to run LinUCB for $T$ = 1,000,000 to see whether or not it behaves as I 
+conjectured it might in the Results section. Finally, I would also want to clean up my loading, 
+evaluation, and algorithm code and have
+it available to do these benchmark tests more easily.
+
+Most results I found in this paper were as I would expect based on prior numerical simulations
+and work (besides indexed UCB and contextual Thompson for the reasons I described previously). 
+However, it was helpful to verify these results on the Yahoo! dataset as a context
+more representative of what real-world applications may face. Ultimately, I would hope that 
+continued work in this area, the availability of this dataset, more awareness of Li et al 2011's work 
+over time will allow us to see more datasets like the Yahoo! Today Module data, especially in
+other application domains. Over time, I would hope that more standardized benchmark datasets, like we currently
+have in supervised learning applications, start to emerge for bandit problems.
 
 # References
 ```{r, echo=FALSE, message=FALSE}

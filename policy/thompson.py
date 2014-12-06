@@ -7,6 +7,8 @@ from policy import Policy
 from index import IndexWrapper
 import pyBandits.policy.Thompson
 from pyBandits.posterior.Beta import Beta
+from posterior.contextualgaussian import ContextualGaussian
+import numpy as np
 
 
 class Thompson(Policy):
@@ -20,7 +22,7 @@ class Thompson(Policy):
     def get_arm(self, arms, context, features):
         return self.policy.choice(arms)
 
-    def pull_arm(self, arm, feedback, context):
+    def pull_arm(self, arm, feedback, context, features=None):
         self.policy.getReward(arm, feedback)
 
 
@@ -41,3 +43,21 @@ class ThompsonWrapper(IndexWrapper, pyBandits.policy.Thompson.Thompson):
         self.t = 1
         for arm in self.arm_list:
             self.posterior[arm].reset()
+
+
+class ContextualThompson(IndexWrapper):
+    def __init__(self, arm_list, dim=6, posterior=ContextualGaussian):
+        self.name = 'ContextualThompson'
+        self.arm_list = arm_list
+        self.posterior = posterior(dim)
+
+    def get_arm(self, arms, context, features):
+        arm_vals = dict()
+        mu_tilde = self.posterior.sample()
+        for arm in arms:
+            arm_vals[arm] = np.inner(features[arm].flatten(), mu_tilde)
+        return max([(a, r) for a, r in arm_vals.items()],
+                   key=lambda x: x[1])[0]
+
+    def pull_arm(self, arm, feedback, context, features):
+        self.posterior.update(feedback, features[arm])

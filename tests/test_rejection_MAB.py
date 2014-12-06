@@ -8,19 +8,24 @@ import sqlite3
 import numpy as np
 from environment.rejection_MAB import RejectionMAB
 from policy.UCB import UCB, IndexedUCB, KLUCB
-from policy.thompson import Thompson
+from policy.thompson import Thompson, ContextualThompson
 from policy.oblivious import Oblivious
+from policy.epsilon_greedy import EpsilonGreedy
+from policy.linUCB import LinUCB
 
 
 class RejectionMABTest(unittest.TestCase):
     def setUp(self):
-        self.conn = sqlite3.connect('full_copy.db')
+        db = 'data/tester.db'
+        self.conn = sqlite3.connect(db)
         self.c = self.conn.cursor()
         self.c.execute('SELECT articleID FROM article')
+        self.n = 10000
         arms = [arm[0] for arm in self.c.fetchall()]
         policies = [UCB(arms), IndexedUCB(arms, range(2, 7)), KLUCB(arms),
-                    Thompson(arms), Oblivious(arms)]
-        self.MAB = RejectionMAB('full_copy.db', 10000, range(2, 7),
+                    Thompson(arms), Oblivious(arms), EpsilonGreedy(arms),
+                    EpsilonGreedy(arms, .05), LinUCB(arms)]
+        self.MAB = RejectionMAB(db, self.n, range(2, 7),
                                 arms, policies)
 
     def tearDown(self):
@@ -77,5 +82,6 @@ class RejectionMABTest(unittest.TestCase):
         self.assertAlmostEqual(ctr_109558_2, ctr_109558_2_called)
 
         self.MAB.run()
-        self.MAB.output_decisions('test_results.gz')
+        self.MAB.output_decisions('data/test_results.gz')
+        # test that file is actually self.n * num_policies + 1
         print self.MAB.total_pulls

@@ -15,5 +15,5 @@ class Oblivious(Policy):
     def get_arm(self, arms, context=None, features=None):
         return random.choice(arms)
 
-    def pull_arm(self, arm, feedback, context=None):
+    def pull_arm(self, arm, feedback, context=None, features=None):
         pass

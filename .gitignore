@@ -53,3 +53,6 @@ venv
 *Webscope/*
 *.db
 *.db-journal
+*.gz
+*_cache/
+*_files/

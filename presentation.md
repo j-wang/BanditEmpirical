@@ -1,4 +1,4 @@
-Online Contextual Bandits: An Empirical Analysis
+Evalution of Bandit Algorithms in a Web Recommendation Context
 ========================================================
 title: Online Contextual Bandits: An Empirical Analysis
 author: James Wang

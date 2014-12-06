@@ -20,7 +20,7 @@ class UCB(Policy):
     def get_arm(self, arms, context=None, features=None):
         return self.policy.choice(arms)
 
-    def pull_arm(self, arm, feedback, context=None):
+    def pull_arm(self, arm, feedback, context=None, features=None):
         self.policy.getReward(arm, feedback)
 
 
@@ -50,7 +50,7 @@ class IndexedUCB(Policy):
     def get_arm(self, arms, context, features=None):
         return self.policies[context].choice(arms)
 
-    def pull_arm(self, arm, feedback, context):
+    def pull_arm(self, arm, feedback, context, features=None):
         self.policies[context].getReward(arm, feedback)
 
 

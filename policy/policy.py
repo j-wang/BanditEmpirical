@@ -15,5 +15,5 @@ class Policy(object):
     def get_arm(self, arms, context=None, features=None):
         raise NotImplementedError("This method must be overridden.")
 
-    def pull_arm(self, arm, feedback, context=None):
+    def pull_arm(self, arm, feedback, context=None, features=None):
         raise NotImplementedError("This method must be overridden.")
